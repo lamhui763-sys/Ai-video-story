@@ -339,19 +339,7 @@ async function startServer() {
       if (!response.ok) {
         const errText = responseDataText || await response.text();
         console.error("Agnes Video API final failure:", errText);
-        
-        let displayError = errText;
-        try {
-          const parsed = JSON.parse(errText);
-          console.log("Parsed error response:", parsed);
-          if (parsed.type === "AgnesAI_error" || (parsed.error && parsed.error.type === "AgnesAI_error")) {
-             displayError = "Agnes AI 服務目前無法處理您的請求，請稍後再試。";
-          }
-        } catch (e) {
-          // ignore
-        }
-        
-        return res.status(response.status).json({ error: `Agnes API Error: ${displayError}` });
+        return res.status(response.status).json({ error: `Agnes API Error: ${errText}` });
       }
 
       const contentType = response.headers.get("content-type") || "";
