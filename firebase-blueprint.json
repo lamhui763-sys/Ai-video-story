@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "An animation project belonging to a user",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the project"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the project was created"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns the project"
+        },
+        "novelText": {
+          "type": "string",
+          "description": "The novel text input"
+        },
+        "scenes": {
+          "type": "array",
+          "description": "The storyboard scenes"
+        },
+        "characters": {
+          "type": "array",
+          "description": "The story characters with consistency descriptions and avatars"
+        }
+      },
+      "required": ["name", "createdAt", "userId"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "The user's animation projects"
+    }
+  }
+}

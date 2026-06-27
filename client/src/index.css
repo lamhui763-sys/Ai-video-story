@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon-pink: #FF00FF;
+  --color-neon-cyan: #00FFFF;
+  --color-bg-dark: #0D0D0D;
+}
+
+@layer components {
+  .btn-neon {
+    @apply bg-neon-pink text-white font-bold py-2 px-4 rounded-lg shadow-[0_0_10px_#FF00FF] hover:shadow-[0_0_20px_#FF00FF] transition-all;
+  }
+  .card-neon {
+    @apply bg-gray-900 border border-neon-cyan/50 p-6 rounded-2xl shadow-[0_0_15px_rgba(0,255,255,0.2)];
+  }
+  .neon-glow {
+    @apply text-neon-pink drop-shadow-[0_0_5px_#FF00FF];
+  }
+  .input-neon {
+    @apply bg-gray-900 border border-neon-cyan text-white p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-neon-cyan;
+  }
+}
+
+@keyframes handheld {
+  0%, 100% { transform: scale(1.1) translate(0px, 0px) rotate(0deg); }
+  20% { transform: scale(1.1) translate(-2px, 1px) rotate(0.5deg); }
+  40% { transform: scale(1.1) translate(1px, -1px) rotate(-0.5deg); }
+  60% { transform: scale(1.1) translate(-1px, -2px) rotate(0.3deg); }
+  80% { transform: scale(1.1) translate(2px, 2px) rotate(-0.3deg); }
+}
+
+.animate-handheld {
+  animation: handheld 4s infinite ease-in-out;
+}
+
