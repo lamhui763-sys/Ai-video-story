@@ -127,6 +127,18 @@ export default function App() {
 
   const [notification, setNotification] = useState<string | null>(null);
 
+  // Custom Scene Modal States
+  const [isSceneModalOpen, setIsSceneModalOpen] = useState(false);
+  const [editingSceneIdx, setEditingSceneIdx] = useState<number | null>(null); // null means creating new scene
+  const [sceneForm, setSceneForm] = useState({
+    sceneNum: '',
+    location: '',
+    characters: [] as string[],
+    description: '',
+    dialogue: [] as { character: string; text: string }[]
+  });
+  const [customCharName, setCustomCharName] = useState('');
+
   // Derive active project
   const activeProject = projects.find(p => p.id === activeProjectId);
 
@@ -203,7 +215,7 @@ export default function App() {
       setIsCreateOpen(false);
       showNotification("Project created successfully!");
     } catch (error) {
-      console.error(error);
+      console.warn("Project creation error:", error);
       showNotification("Error creating project.");
       handleFirestoreError(error, OperationType.CREATE, 'projects');
     } finally {
@@ -219,7 +231,7 @@ export default function App() {
       setProjectToDelete(null);
       showNotification("Project deleted.");
     } catch (error) {
-      console.error(error);
+      console.warn("Project deletion error:", error);
       showNotification("Error deleting project.");
       handleFirestoreError(error, OperationType.DELETE, `projects/${projectToDelete.id}`);
     } finally {
@@ -235,7 +247,7 @@ export default function App() {
       });
       showNotification("Novel content saved successfully!");
     } catch (error) {
-      console.error(error);
+      console.warn("Save novel error:", error);
       showNotification("Error saving novel.");
     }
   };
@@ -314,7 +326,7 @@ export default function App() {
         throw new Error("格式解析失敗");
       }
     } catch (error: any) {
-      console.error(error);
+      console.warn("Character extraction error:", error);
       showNotification(`角色解析失敗: ${error.message || "請檢查 API 金鑰或網路"}`);
     } finally {
       setIsExtractingCharacters(false);
@@ -358,7 +370,7 @@ export default function App() {
       });
       showNotification(`${char.name} 頭像繪製完成！`);
     } catch (err) {
-      console.error(err);
+      console.warn("Character image generation error:", err);
       showNotification("生圖失敗，請重試");
     } finally {
       setGeneratingCharacterImages(prev => ({ ...prev, [charIdx]: false }));
@@ -399,6 +411,147 @@ export default function App() {
     await updateDoc(doc(db, 'projects', activeProjectId), {
       characters: updatedChars
     });
+  };
+
+  // Custom Scene Management Handlers
+  const handleOpenAddSceneModal = () => {
+    const currentScenes = activeProject?.scenes || [];
+    setSceneForm({
+      sceneNum: (currentScenes.length + 1).toString(),
+      location: '',
+      characters: [],
+      description: '',
+      dialogue: []
+    });
+    setCustomCharName('');
+    setEditingSceneIdx(null);
+    setIsSceneModalOpen(true);
+  };
+
+  const handleOpenEditSceneModal = (idx: number, scene: any) => {
+    setSceneForm({
+      sceneNum: scene.sceneNum || (idx + 1).toString(),
+      location: scene.location || '',
+      characters: Array.isArray(scene.characters) ? [...scene.characters] : [],
+      description: scene.description || '',
+      dialogue: Array.isArray(scene.dialogue) ? JSON.parse(JSON.stringify(scene.dialogue)) : []
+    });
+    setCustomCharName('');
+    setEditingSceneIdx(idx);
+    setIsSceneModalOpen(true);
+  };
+
+  const handleSaveScene = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!activeProjectId || !activeProject) return;
+
+    const currentScenes = activeProject.scenes ? [...activeProject.scenes] : [];
+    
+    const newScene = {
+      sceneNum: sceneForm.sceneNum.trim() || (editingSceneIdx !== null ? (editingSceneIdx + 1).toString() : (currentScenes.length + 1).toString()),
+      location: sceneForm.location.trim() || '未定義地點',
+      characters: sceneForm.characters,
+      description: sceneForm.description.trim() || 'A beautiful scene illustration.',
+      dialogue: sceneForm.dialogue,
+      imageUrl: editingSceneIdx !== null ? (currentScenes[editingSceneIdx]?.imageUrl || '') : '',
+      aiVideoUrl: editingSceneIdx !== null ? (currentScenes[editingSceneIdx]?.aiVideoUrl || '') : '',
+    };
+
+    if (editingSceneIdx === null) {
+      currentScenes.push(newScene);
+      showNotification("已成功新增自定義分鏡場景！");
+    } else {
+      currentScenes[editingSceneIdx] = {
+        ...currentScenes[editingSceneIdx],
+        ...newScene
+      };
+      showNotification("分鏡場景修改成功！");
+    }
+
+    try {
+      await updateDoc(doc(db, 'projects', activeProjectId), {
+        scenes: currentScenes
+      });
+      setIsSceneModalOpen(false);
+    } catch (err) {
+      console.error("Error saving scene:", err);
+      showNotification("儲存分鏡失敗，請重試");
+    }
+  };
+
+  const handleDeleteScene = async (sceneIdx: number) => {
+    if (!activeProjectId || !activeProject?.scenes) return;
+    if (!window.confirm("確定要刪除這個分鏡場景嗎？此操作將無法還原。")) return;
+
+    const updatedScenes = activeProject.scenes.filter((_, idx) => idx !== sceneIdx);
+    
+    try {
+      await updateDoc(doc(db, 'projects', activeProjectId), {
+        scenes: updatedScenes
+      });
+      showNotification("分鏡場景已成功刪除！");
+    } catch (err) {
+      console.error("Error deleting scene:", err);
+      showNotification("刪除分鏡失敗，請重試");
+    }
+  };
+
+  const handleAddDialogueRow = () => {
+    setSceneForm(prev => ({
+      ...prev,
+      dialogue: [...prev.dialogue, { character: '', text: '' }]
+    }));
+  };
+
+  const handleRemoveDialogueRow = (dialIdx: number) => {
+    setSceneForm(prev => ({
+      ...prev,
+      dialogue: prev.dialogue.filter((_, idx) => idx !== dialIdx)
+    }));
+  };
+
+  const handleDialogueFieldChange = (dialIdx: number, field: 'character' | 'text', value: string) => {
+    setSceneForm(prev => {
+      const updated = [...prev.dialogue];
+      updated[dialIdx] = {
+        ...updated[dialIdx],
+        [field]: value
+      };
+      return {
+        ...prev,
+        dialogue: updated
+      };
+    });
+  };
+
+  const handleToggleFormCharacter = (charName: string) => {
+    setSceneForm(prev => {
+      const current = prev.characters;
+      if (current.includes(charName)) {
+        return {
+          ...prev,
+          characters: current.filter(c => c !== charName)
+        };
+      } else {
+        return {
+          ...prev,
+          characters: [...current, charName]
+        };
+      }
+    });
+  };
+
+  const handleAddCustomCharToForm = () => {
+    if (!customCharName.trim()) return;
+    const name = customCharName.trim();
+    setSceneForm(prev => {
+      if (prev.characters.includes(name)) return prev;
+      return {
+        ...prev,
+        characters: [...prev.characters, name]
+      };
+    });
+    setCustomCharName('');
   };
 
   const handleGenerateScript = async () => {
@@ -470,7 +623,7 @@ export default function App() {
         throw new Error("Invalid format returned by AI.");
       }
     } catch (error: any) {
-      console.error(error);
+      console.warn("Script generation error:", error);
       showNotification(`Generation error: ${error.message || "Please check your API key"}`);
     } finally {
       setIsGeneratingScript(false);
@@ -540,7 +693,7 @@ export default function App() {
       });
       showNotification(`場景 ${sceneIdx + 1} 繪製成功！`);
     } catch (err) {
-      console.error(err);
+      console.warn("Scene image generation error:", err);
       showNotification("生圖失敗，請重試");
     } finally {
       setGeneratingImages(prev => ({ ...prev, [sceneId]: false }));
@@ -806,7 +959,7 @@ export default function App() {
       drawFrame();
 
     } catch (err: any) {
-      console.error(err);
+      console.warn("Video render/export error:", err);
       setExportingVideoSceneIdx(null);
       showNotification(`本地導出失敗: ${err.message || "未知錯誤"}`);
     }
@@ -814,6 +967,7 @@ export default function App() {
 
   const handleGenerateAiVideo = async (sceneIdx: number, scene: any) => {
     if (!activeProjectId || !activeProject?.scenes) return;
+    
     if (!agnesKey.trim()) {
       showNotification("請先在側邊欄輸入並儲存 Agnes AI API Key！");
       return;
@@ -1051,7 +1205,7 @@ export default function App() {
       setTimeout(poll, 4000);
 
     } catch (err: any) {
-      console.error(err);
+      console.warn("AI Video generation submission error:", err);
       setVideoTasks(prev => ({
         ...prev,
         [sceneIdx]: { taskId: "", status: "failed", progress: "0%", error: err.message || "請求失敗" }
@@ -1765,6 +1919,21 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Add Custom Scene action bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 bg-gray-950/40 p-3.5 rounded-xl border border-gray-800/80">
+                    <div className="text-left">
+                      <span className="block text-xs font-semibold text-white">自定義分鏡工坊</span>
+                      <span className="block text-[10px] text-gray-400 mt-0.5">您可以隨時點擊右側按鈕，手動新增、編輯或刪除此專案的分鏡場景</span>
+                    </div>
+                    <button
+                      onClick={handleOpenAddSceneModal}
+                      className="px-4 py-2 bg-gradient-to-r from-neon-cyan to-neon-pink text-black hover:scale-105 font-bold rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,255,255,0.25)] cursor-pointer self-start sm:self-auto"
+                    >
+                      <Plus className="w-4 h-4 text-black stroke-[3px]" />
+                      <span>新增自定義分鏡場景</span>
+                    </button>
+                  </div>
+
                   {!activeProject?.scenes || activeProject.scenes.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-gray-800 rounded-xl bg-black/20">
                       <p className="text-gray-400 text-sm">尚未生成任何分鏡卡片。</p>
@@ -1788,12 +1957,30 @@ export default function App() {
                           <div key={sceneId} className="bg-black/60 border border-neon-cyan/20 rounded-2xl p-5 hover:border-neon-cyan/50 transition-all shadow-[0_4px_15px_rgba(0,0,0,0.3)]">
                             
                             {/* Scene header */}
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-gray-800 mb-4">
-                              <div className="flex items-center gap-2.5">
-                                <span className="bg-neon-cyan text-black text-xs font-bold px-2 py-0.5 rounded">
-                                  場景 {scene.sceneNum || idx + 1}
-                                </span>
-                                <h4 className="font-bold text-white text-base">{scene.location || '場景地點'}</h4>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-gray-800 mb-4">
+                              <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+                                <div className="flex items-center gap-2.5">
+                                  <span className="bg-neon-cyan text-black text-xs font-bold px-2 py-0.5 rounded">
+                                    場景 {scene.sceneNum || idx + 1}
+                                  </span>
+                                  <h4 className="font-bold text-white text-base">{scene.location || '場景地點'}</h4>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button 
+                                    onClick={() => handleOpenEditSceneModal(idx, scene)}
+                                    className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-neon-cyan transition-colors cursor-pointer"
+                                    title="編輯分鏡內容"
+                                  >
+                                    <Sliders className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteScene(idx)}
+                                    className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+                                    title="刪除此分鏡"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </div>
                               <div className="flex flex-wrap gap-1">
                                 {Array.isArray(scene.characters) && scene.characters.map((char: string) => (
@@ -1859,10 +2046,10 @@ export default function App() {
                                     )}
  
                                     {/* Always Visible Premium Control Bar at the bottom of the image */}
-                                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 flex items-center justify-between gap-2 z-10">
-                                      <span className="text-[10px] text-gray-300 font-mono tracking-wider flex items-center gap-1.5">
+                                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 flex items-center justify-between gap-2 z-10 overflow-x-auto scrollbar-none flex-nowrap">
+                                      <span className="text-[10px] text-gray-300 font-mono tracking-wider flex items-center gap-1.5 whitespace-nowrap shrink-0">
                                         {scene.aiVideoUrl ? (
-                                          <div className="flex items-center gap-1">
+                                          <div className="flex items-center gap-1 whitespace-nowrap">
                                             <span className="text-neon-pink font-bold flex items-center gap-1">
                                               <Sparkles className="w-3.5 h-3.5 animate-pulse text-neon-pink" />
                                               <span>🎬 真正 AI 影片已就緒</span>
@@ -1873,7 +2060,7 @@ export default function App() {
                                                 navigator.clipboard.writeText(scene.aiVideoUrl);
                                                 alert('影片連結已複製到剪貼簿');
                                               }}
-                                              className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
+                                              className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer"
                                               title="複製影片連結"
                                             >
                                               <Copy className="w-3.5 h-3.5" />
@@ -1889,22 +2076,22 @@ export default function App() {
                                             </a>
                                           </div>
                                         ) : isVideoPlaying ? (
-                                          <>
+                                          <div className="flex items-center gap-1 whitespace-nowrap">
                                             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
                                             <span className="text-neon-pink font-bold">🎬 3D 運鏡播放中</span>
-                                          </>
+                                          </div>
                                         ) : (
-                                          <span className="text-gray-400">📷 靜態分鏡畫幅</span>
+                                          <span className="text-gray-400 whitespace-nowrap">📷 靜態分鏡畫幅</span>
                                         )}
                                       </span>
                                       
-                                      <div className="flex gap-1.5">
+                                      <div className="flex gap-1.5 shrink-0 flex-nowrap items-center">
                                         <button 
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             handleGenerateImage(idx, scene.description);
                                           }}
-                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-black/60 border border-gray-800 hover:border-neon-cyan text-[11px] font-medium text-gray-300 hover:text-white rounded-lg transition-all cursor-pointer"
+                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-black/60 border border-gray-800 hover:border-neon-cyan text-[11px] font-medium text-gray-300 hover:text-white rounded-lg transition-all cursor-pointer whitespace-nowrap"
                                           title="重新繪製此分鏡"
                                         >
                                           <RefreshCw className={`w-3 h-3 text-neon-cyan ${isGeneratingImg ? 'animate-spin' : ''}`} />
@@ -1918,17 +2105,28 @@ export default function App() {
                                             handleGenerateAiVideo(idx, scene);
                                           }}
                                           disabled={videoTasks[idx]?.status === 'queued' || videoTasks[idx]?.status === 'processing'}
-                                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
                                             videoTasks[idx]
-                                              ? 'bg-neon-pink/20 border border-neon-pink text-neon-pink animate-pulse'
+                                              ? videoTasks[idx].status === 'failed'
+                                                ? 'bg-red-950/40 border border-red-500/50 text-red-400 hover:border-red-500'
+                                                : 'bg-neon-pink/20 border border-neon-pink text-neon-pink animate-pulse'
                                               : 'bg-neon-pink/10 border border-neon-pink/30 hover:border-neon-pink text-neon-pink hover:text-white font-bold'
                                           }`}
-                                          title="調用 Agnes-Video-2.0 雲端 API 真正生成 AI 動態影片"
+                                          title={videoTasks[idx]?.error ? `錯誤原因: ${videoTasks[idx].error}` : "調用 Agnes-Video-2.0 雲端 API 真正生成 AI 動態影片"}
                                         >
                                           {videoTasks[idx] ? (
                                             <>
-                                              <div className="w-3 h-3 border border-neon-pink border-t-transparent rounded-full animate-spin"></div>
-                                              <span>{videoTasks[idx].status === 'queued' ? '排隊中...' : `生成中 ${videoTasks[idx].progress}`}</span>
+                                              {videoTasks[idx].status === 'failed' ? (
+                                                <>
+                                                  <span className="text-red-500 mr-1 font-bold">⚠️</span>
+                                                  <span>生成失敗 (重試)</span>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <div className="w-3 h-3 border border-neon-pink border-t-transparent rounded-full animate-spin"></div>
+                                                  <span>{videoTasks[idx].status === 'queued' ? '排隊中...' : `生成中 ${videoTasks[idx].progress}`}</span>
+                                                </>
+                                              )}
                                             </>
                                           ) : (
                                             <>
@@ -1944,7 +2142,7 @@ export default function App() {
                                               e.stopPropagation();
                                               handleToggleVideoPlay(idx);
                                             }}
-                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
                                               isVideoPlaying 
                                                 ? 'bg-red-600 border-red-500 text-white animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.4)]' 
                                                 : 'bg-black/60 border border-gray-800 text-gray-300 hover:text-white hover:border-gray-600'
@@ -2010,9 +2208,16 @@ export default function App() {
                                         <div className="w-12 h-12 rounded-full bg-gray-900 border border-gray-800 flex items-center justify-center text-gray-500">
                                           <Image className="w-6 h-6 text-gray-600" />
                                         </div>
-                                        <div>
-                                          <p className="text-xs text-gray-400">本場景尚未繪製分鏡圖</p>
-                                          <p className="text-[10px] text-gray-600 mt-0.5">點擊下方「免費繪製分鏡圖」一鍵著色</p>
+                                        <div className="flex flex-col items-center">
+                                          <p className="text-xs text-gray-400 font-semibold">本場景尚未繪製分鏡圖</p>
+                                          <p className="text-[10px] text-gray-600 mt-0.5 mb-2.5">請點擊下方按鈕或這裡直接繪圖</p>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleGenerateImage(idx, scene.description)}
+                                            className="px-3.5 py-1.5 bg-neon-cyan/15 border border-neon-cyan/40 hover:border-neon-cyan text-neon-cyan hover:text-black hover:bg-neon-cyan text-[10px] font-bold rounded-lg transition-all cursor-pointer shadow-xs"
+                                          >
+                                            🎨 一鍵繪製分鏡圖
+                                          </button>
                                         </div>
                                       </>
                                     )}
@@ -2241,6 +2446,194 @@ export default function App() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* --- ADD / EDIT SCENE DIALOG MODAL --- */}
+      {isSceneModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="bg-gray-950 border border-neon-cyan/50 p-6 rounded-2xl w-full max-w-2xl my-8 shadow-[0_0_30px_rgba(0,255,255,0.2)] flex flex-col max-h-[90vh]">
+            <h3 className="text-xl font-bold text-white mb-2 neon-glow flex items-center gap-2 flex-shrink-0">
+              <Film className="text-neon-cyan w-5 h-5 animate-pulse" />
+              {editingSceneIdx === null ? '新增自定義分鏡場景' : `編輯分鏡場景 #${editingSceneIdx + 1}`}
+            </h3>
+            <p className="text-xs text-gray-400 mb-4 flex-shrink-0">
+              填寫分鏡內容與對白。儲存後即可直接使用 AI 生成相片與影片！
+            </p>
+            
+            <form onSubmit={handleSaveScene} className="space-y-4 overflow-y-auto pr-1 flex-1">
+              {/* Scene Number and Location */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-neon-cyan mb-1.5">場景編號</label>
+                  <input 
+                    type="text" 
+                    value={sceneForm.sceneNum}
+                    onChange={(e) => setSceneForm(prev => ({ ...prev, sceneNum: e.target.value }))}
+                    placeholder="例如: 1"
+                    className="w-full bg-gray-900 border border-gray-800 text-white rounded-lg px-3 py-2 focus:outline-none focus:border-neon-cyan text-xs"
+                    required
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] uppercase font-bold text-neon-cyan mb-1.5">場景地點與時間</label>
+                  <input 
+                    type="text" 
+                    value={sceneForm.location}
+                    onChange={(e) => setSceneForm(prev => ({ ...prev, location: e.target.value }))}
+                    placeholder="例如: 辦公室 - 日"
+                    className="w-full bg-gray-900 border border-gray-800 text-white rounded-lg px-3 py-2 focus:outline-none focus:border-neon-cyan text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Characters multi-select */}
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-neon-pink mb-1.5">出場角色</label>
+                <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-3 space-y-3">
+                  {/* Predefined project characters */}
+                  {activeProject?.characters && activeProject.characters.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {activeProject.characters.map((char) => {
+                        const isSelected = sceneForm.characters.includes(char.name);
+                        return (
+                          <button
+                            key={char.name}
+                            type="button"
+                            onClick={() => handleToggleFormCharacter(char.name)}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border flex items-center gap-1 transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-neon-pink/15 border-neon-pink text-neon-pink shadow-[0_0_8px_rgba(255,0,255,0.2)]'
+                                : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-white hover:border-gray-700'
+                            }`}
+                          >
+                            <span>👤</span>
+                            <span>{char.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-gray-500">專案中尚未設定任何角色。可在下方或「故事角色設定」頁面中新增。</p>
+                  )}
+
+                  {/* Add arbitrary custom character name to form */}
+                  <div className="flex gap-2 pt-1 border-t border-gray-800/40">
+                    <input 
+                      type="text"
+                      value={customCharName}
+                      onChange={(e) => setCustomCharName(e.target.value)}
+                      placeholder="輸入其他出場角色名稱"
+                      className="bg-gray-950 border border-gray-800 text-white rounded-lg px-3 py-1 text-xs focus:outline-none focus:border-neon-pink flex-1"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomCharToForm();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomCharToForm}
+                      className="px-3 py-1 bg-gray-950 hover:bg-neon-pink/10 border border-neon-pink/30 hover:border-neon-pink text-neon-pink text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      新增角色
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description / Prompt Textarea */}
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-neon-cyan mb-1.5 flex justify-between">
+                  <span>鏡頭視覺視覺描述 & 提示詞</span>
+                  <span className="text-gray-500 font-normal">適合 Stable Diffusion / Flux 生圖之英文提示詞</span>
+                </label>
+                <textarea 
+                  value={sceneForm.description}
+                  onChange={(e) => setSceneForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="例如: Medium shot of a programmer typing frantically in a dark room illuminated only by neon-cyan monitor glow, cyberpunk vibe, detailed face, 8k"
+                  rows={3}
+                  className="w-full bg-gray-900 border border-gray-800 text-white rounded-lg p-3 focus:outline-none focus:border-neon-cyan text-xs font-sans leading-relaxed"
+                  required
+                />
+              </div>
+
+              {/* Dialogue Rows list */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[10px] uppercase font-bold text-gray-400">對白旁白設定</label>
+                  <button
+                    type="button"
+                    onClick={handleAddDialogueRow}
+                    className="text-[10px] font-bold text-neon-cyan hover:text-white flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>新增對白行</span>
+                  </button>
+                </div>
+                
+                <div className="space-y-2 bg-gray-900/30 border border-gray-800/50 rounded-xl p-3 max-h-[160px] overflow-y-auto">
+                  {sceneForm.dialogue.length === 0 ? (
+                    <p className="text-[11px] text-gray-500 text-center py-2">此場景尚無對白。點擊右上角新增。</p>
+                  ) : (
+                    sceneForm.dialogue.map((dial, dialIdx) => (
+                      <div key={dialIdx} className="flex gap-2 items-center">
+                        {/* Character selector / text */}
+                        <div className="w-[120px] flex-shrink-0">
+                          <input 
+                            type="text"
+                            value={dial.character}
+                            onChange={(e) => handleDialogueFieldChange(dialIdx, 'character', e.target.value)}
+                            placeholder="角色姓名"
+                            className="w-full bg-gray-950 border border-gray-800 text-white rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-neon-cyan"
+                          />
+                        </div>
+                        {/* Dialogue Text */}
+                        <div className="flex-1">
+                          <input 
+                            type="text"
+                            value={dial.text}
+                            onChange={(e) => handleDialogueFieldChange(dialIdx, 'text', e.target.value)}
+                            placeholder="對白台詞內容"
+                            className="w-full bg-gray-950 border border-gray-800 text-white rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-neon-cyan"
+                          />
+                        </div>
+                        {/* Delete row */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDialogueRow(dialIdx)}
+                          className="p-1.5 bg-gray-950 hover:bg-red-500/10 text-gray-500 hover:text-red-500 rounded-lg transition-colors cursor-pointer"
+                          title="刪除此行"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-900 flex-shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setIsSceneModalOpen(false)}
+                  className="px-4 py-2 border border-gray-800 rounded-xl hover:bg-gray-900 transition-colors text-xs text-gray-400 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-neon-cyan to-neon-pink hover:scale-105 text-black font-bold rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>儲存分鏡</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
