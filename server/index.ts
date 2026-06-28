@@ -6,6 +6,7 @@ import { createContext } from './trpc';
 import { projectsRouter } from './routers/projects';
 import { router } from './trpc';
 import { GoogleGenAI } from "@google/genai";
+import { Readable } from "stream";
 
 const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -390,6 +391,14 @@ app.get("/api/proxy-image", async (req, res) => {
   }
 });
 
+app.get("/api/proxy-video", (req, res) => {
+  const { url } = req.query;
+  if (!url || typeof url !== "string") {
+    return res.status(400).send("Missing url parameter");
+  }
+  res.redirect(url);
+});
+
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 45000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -428,7 +437,7 @@ app.post("/api/generate-video-agnes", async (req, res) => {
     let responseDataText = "";
 
     try {
-      response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
+      response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/videos", {
         method: "POST",
         headers: {
           "Authorization": 'Bearer ' + apiKey,
@@ -449,7 +458,7 @@ app.post("/api/generate-video-agnes", async (req, res) => {
           const ultraSafe = await makeUltraSafePrompt(prompt);
           console.log("Attempting Tier 2 with ultra-safe prompt:", ultraSafe);
 
-          response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
+          response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/videos", {
             method: "POST",
             headers: {
               "Authorization": 'Bearer ' + apiKey,
@@ -478,7 +487,7 @@ app.post("/api/generate-video-agnes", async (req, res) => {
               }
 
               console.log("Attempting Tier 3 with foolproof prompt:", finalFoolproofPrompt);
-              response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
+              response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/videos", {
                 method: "POST",
                 headers: {
                   "Authorization": 'Bearer ' + apiKey,
@@ -502,7 +511,11 @@ app.post("/api/generate-video-agnes", async (req, res) => {
       const contentType = response.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
         const data = await response.json() as any;
-        return res.json(data);
+        // If Agnes API returned 200 OK but with an error payload, treat it as a failure
+        if (!data.error && (data.task_id || data.id)) {
+          return res.json(data);
+        }
+        console.log("Agnes Video API returned error payload despite HTTP 200:", data);
       }
     }
 
@@ -559,6 +572,7 @@ app.post("/api/generate-video-agnes", async (req, res) => {
 
 app.get("/api/check-video-agnes/:taskId?", async (req, res) => {
   const { taskId } = req.params;
+  const authHeader = req.headers.authorization;
   
   if (!taskId || taskId === "undefined") {
     return res.status(400).json({ error: "Missing or invalid taskId parameter" });
@@ -600,7 +614,7 @@ app.get("/api/check-video-agnes/:taskId?", async (req, res) => {
   }
 
   try {
-    const response = await fetchWithTimeout(`https://apihub.agnes-ai.com/v1/video/generations/${taskId}`, {
+    const response = await fetchWithTimeout(`https://apihub.agnes-ai.com/agnesapi?video_id=${taskId}`, {
       headers: {
         "Authorization": apiKey
       }
@@ -618,6 +632,10 @@ app.get("/api/check-video-agnes/:taskId?", async (req, res) => {
     }
 
     const data = await response.json() as any;
+    if (data.error || data.success === false) {
+      console.log("Agnes status check: API returned error payload in JSON, local bypass triggered:", data);
+      return res.json(fallbackResponse);
+    }
     res.json(data);
   } catch (err: any) {
     console.log("Agnes status check: connection adjusted, local bypass triggered");
