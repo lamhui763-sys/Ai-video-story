@@ -340,7 +340,14 @@ ${originalPrompt}
 
   let finalSafePrompt = `${consistencyTag}A beautiful anime illustration of a character smiling in a brightly lit peaceful room, clean and sunny, soft warm colors.`;
   if (originalPrompt.toLowerCase().includes("female") || originalPrompt.toLowerCase().includes("girl") || originalPrompt.toLowerCase().includes("woman") || originalPrompt.includes("女") || originalPrompt.includes("她")) {
-    finalSafePrompt = `${consistencyTag}A cheerful anime girl sitting in a sunny cozy room, smiling warmly atconst app = express();
+    finalSafePrompt = `${consistencyTag}A cheerful anime girl sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
+  } else if (originalPrompt.toLowerCase().includes("male") || originalPrompt.toLowerCase().includes("boy") || originalPrompt.toLowerCase().includes("man")) {
+    finalSafePrompt = `${consistencyTag}A cheerful anime boy sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
+  }
+  return finalSafePrompt;
+}
+
+const app = express();
 const PORT = 3000;
 
 app.use(express.json());
@@ -348,7 +355,7 @@ app.use(express.json());
 app.use(
   '/api/trpc',
   trpcExpress.createExpressMiddleware({
-    router: appRouter,
+    router: router,
     createContext,
   }),
 );
@@ -445,7 +452,7 @@ app.post("/api/generate-video-agnes", async (req, res) => {
           response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${apiKey}`,
+              "Authorization": 'Bearer ' + apiKey,
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
@@ -474,7 +481,7 @@ app.post("/api/generate-video-agnes", async (req, res) => {
               response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
                 method: "POST",
                 headers: {
-                  "Authorization": `Bearer ${apiKey}`,
+                  "Authorization": 'Bearer ' + apiKey,
                   "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
@@ -645,7 +652,7 @@ ${content}`;
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
+          "Authorization": 'Bearer ' + apiKey
         },
         body: JSON.stringify({
           model: selectedModel,
@@ -665,7 +672,7 @@ ${content}`;
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
+          "Authorization": 'Bearer ' + apiKey
         },
         body: JSON.stringify({
           model: selectedModel,
@@ -747,7 +754,7 @@ ${content}`;
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
+          "Authorization": 'Bearer ' + apiKey
         },
         body: JSON.stringify({
           model: selectedModel,
@@ -767,7 +774,7 @@ ${content}`;
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
+          "Authorization": 'Bearer ' + apiKey
         },
         body: JSON.stringify({
           model: selectedModel,
@@ -850,22 +857,11 @@ export async function startServer() {
     app.use(vite.middlewares);
   }
   
-  if (require.main === module) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log('Server running on http://localhost:' + PORT);
-    });
-  }
-}
-
-if (require.main === module) {
-  startServer();
-}
-
-export default app;
-
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log('Server running on http://localhost:' + PORT);
   });
 }
 
 startServer();
+
+export default app;
