@@ -230,7 +230,7 @@ function localTranslateAndOptimize(prompt: string): string {
     translated += ", anime cinematic style, highly detailed masterpiece, beautiful lighting, soft colors";
   }
 
-  return consistencyTag ? `${consistencyTag} ${translated}` : translated;
+  return consistencyTag ? (consistencyTag + ' ' + translated) : translated;
 }
 
 async function sanitizeAndTranslatePrompt(originalPrompt: string): Promise<string> {
@@ -340,309 +340,295 @@ ${originalPrompt}
 
   let finalSafePrompt = `${consistencyTag}A beautiful anime illustration of a character smiling in a brightly lit peaceful room, clean and sunny, soft warm colors.`;
   if (originalPrompt.toLowerCase().includes("female") || originalPrompt.toLowerCase().includes("girl") || originalPrompt.toLowerCase().includes("woman") || originalPrompt.includes("女") || originalPrompt.includes("她")) {
-    finalSafePrompt = `${consistencyTag}A cheerful anime girl sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
-  } else if (originalPrompt.toLowerCase().includes("male") || originalPrompt.toLowerCase().includes("boy") || originalPrompt.toLowerCase().includes("man") || originalPrompt.includes("男") || originalPrompt.includes("他")) {
-    finalSafePrompt = `${consistencyTag}A cheerful anime boy sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
-  }
-  return finalSafePrompt;
-}
+    finalSafePrompt = `${consistencyTag}A cheerful anime girl sitting in a sunny cozy room, smiling warmly atconst app = express();
+const PORT = 3000;
 
-const appRouter = router({
-  projects: projectsRouter,
+app.use(express.json());
+
+app.use(
+  '/api/trpc',
+  trpcExpress.createExpressMiddleware({
+    router: appRouter,
+    createContext,
+  }),
+);
+
+// API routes
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
-export type AppRouter = typeof appRouter;
-
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
-
-  app.use(express.json());
-
-  app.use(
-    '/api/trpc',
-    trpcExpress.createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    }),
-  );
-
-  // API routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
-
-  app.get("/api/proxy-image", async (req, res) => {
-    const { url } = req.query;
-    if (!url || typeof url !== "string") {
-      return res.status(400).send("Missing url parameter");
-    }
-
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch original image: ${response.statusText}`);
-      }
-      
-      const contentType = response.headers.get("content-type") || "image/png";
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      res.send(buffer);
-    } catch (err: any) {
-      console.error("Proxy image error:", err);
-      res.status(500).send("Error proxying image");
-    }
-  });
-
-  async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 45000): Promise<Response> {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      clearTimeout(id);
-      return response;
-    } catch (err: any) {
-      clearTimeout(id);
-      if (err.name === 'AbortError') {
-        const sec = Math.round(timeoutMs / 1000);
-        throw new Error(`請求 ${url} 連接超時 (${sec}秒)。可能 Agnes AI 伺服器暫時無法連線或繁忙，請稍後重試。`);
-      }
-      throw err;
-    }
+app.get("/api/proxy-image", async (req, res) => {
+  const { url } = req.query;
+  if (!url || typeof url !== "string") {
+    return res.status(400).send("Missing url parameter");
   }
 
-  app.post("/api/generate-video-agnes", async (req, res) => {
-    const { apiKey, prompt } = req.body;
-    if (!apiKey) {
-      return res.status(400).json({ error: "Missing Agnes API Key" });
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to fetch original image: ' + response.statusText);
     }
-    if (!prompt) {
-      return res.status(400).json({ error: "Missing video generation prompt" });
+    
+    const contentType = response.headers.get("content-type") || "image/png";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    res.send(buffer);
+  } catch (err: any) {
+    console.error("Proxy image error:", err);
+    res.status(500).send("Error proxying image");
+  }
+});
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 45000): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') {
+      const sec = Math.round(timeoutMs / 1000);
+      throw new Error('Request ' + url + ' timed out (' + (Math.round(timeoutMs / 1000)) + 's). Agnes AI server might be busy, please try again later.');
     }
+    throw err;
+  }
+}
+
+app.post("/api/generate-video-agnes", async (req, res) => {
+  const { apiKey, prompt } = req.body;
+  if (!apiKey) {
+    return res.status(400).json({ error: "Missing Agnes API Key" });
+  }
+  if (!prompt) {
+    return res.status(400).json({ error: "Missing video generation prompt" });
+  }
+
+  try {
+    // Tier 1: Optimize, translate, and sanitize the prompt to avoid content policy violations
+    const safePrompt = await sanitizeAndTranslatePrompt(prompt);
+    console.log("Tier 1 - safePrompt:", safePrompt);
+
+    let response;
+    let responseDataText = "";
 
     try {
-      // Tier 1: Optimize, translate, and sanitize the prompt to avoid content policy violations
-      const safePrompt = await sanitizeAndTranslatePrompt(prompt);
-      console.log("Tier 1 - safePrompt:", safePrompt);
+      response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
+        method: "POST",
+        headers: {
+          "Authorization": 'Bearer ' + apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "agnes-video-v2.0",
+          prompt: safePrompt
+        })
+      });
 
-      let response;
-      let responseDataText = "";
+      if (!response.ok) {
+        responseDataText = await response.text();
+        console.log("Agnes Tier 1: policy adjustments requested, initiating Tier 2 optimization...");
 
-      try {
-        response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "agnes-video-v2.0",
-            prompt: safePrompt
-          })
-        });
+        // Check if it is a content policy violation
+        if (responseDataText.includes("content_policy_violation")) {
+          const ultraSafe = await makeUltraSafePrompt(prompt);
+          console.log("Attempting Tier 2 with ultra-safe prompt:", ultraSafe);
 
-        if (!response.ok) {
-          responseDataText = await response.text();
-          console.log("Agnes Tier 1: policy adjustments requested, initiating Tier 2 optimization...");
+          response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model: "agnes-video-v2.0",
+              prompt: ultraSafe
+            })
+          });
 
-          // Check if it is a content policy violation
-          if (responseDataText.includes("content_policy_violation")) {
-            const ultraSafe = await makeUltraSafePrompt(prompt);
-            console.log("Attempting Tier 2 with ultra-safe prompt:", ultraSafe);
+          if (!response.ok) {
+            responseDataText = await response.text();
+            console.log("Agnes Tier 2: policy adjustments requested, initiating Tier 3 optimization...");
 
-            response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                model: "agnes-video-v2.0",
-                prompt: ultraSafe
-              })
-            });
-
-            if (!response.ok) {
-              responseDataText = await response.text();
-              console.log("Agnes Tier 2: policy adjustments requested, initiating Tier 3 optimization...");
-
-              if (responseDataText.includes("content_policy_violation")) {
-                // Extract character consistency tag if any
-                const consistencyMatch = prompt.match(/^\[Character consistency:[^\]]+\]/i);
-                const consistencyTag = consistencyMatch ? consistencyMatch[0] + " " : "";
-                
-                let finalFoolproofPrompt = `${consistencyTag}A beautiful anime illustration of a character smiling in a brightly lit peaceful room, clean and sunny, soft warm colors.`;
-                if (prompt.toLowerCase().includes("female") || prompt.toLowerCase().includes("girl") || prompt.toLowerCase().includes("woman")) {
-                  finalFoolproofPrompt = `${consistencyTag}A cheerful anime girl sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
-                } else if (prompt.toLowerCase().includes("male") || prompt.toLowerCase().includes("boy") || prompt.toLowerCase().includes("man")) {
-                  finalFoolproofPrompt = `${consistencyTag}A cheerful anime boy sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
-                }
-
-                console.log("Attempting Tier 3 with foolproof prompt:", finalFoolproofPrompt);
-                response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
-                  method: "POST",
-                  headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json"
-                  },
-                  body: JSON.stringify({
-                    model: "agnes-video-v2.0",
-                    prompt: finalFoolproofPrompt
-                  })
-                });
+            if (responseDataText.includes("content_policy_violation")) {
+              // Extract character consistency tag if any
+              const consistencyMatch = prompt.match(/^\[Character consistency:[^\]]+\]/i);
+              const consistencyTag = consistencyMatch ? consistencyMatch[0] + " " : "";
+              
+              let finalFoolproofPrompt = `${consistencyTag}A beautiful anime illustration of a character smiling in a brightly lit peaceful room, clean and sunny, soft warm colors.`;
+              if (prompt.toLowerCase().includes("female") || prompt.toLowerCase().includes("girl") || prompt.toLowerCase().includes("woman")) {
+                finalFoolproofPrompt = `${consistencyTag}A cheerful anime girl sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
+              } else if (prompt.toLowerCase().includes("male") || prompt.toLowerCase().includes("boy") || prompt.toLowerCase().includes("man")) {
+                finalFoolproofPrompt = `${consistencyTag}A cheerful anime boy sitting in a sunny cozy room, smiling warmly at the camera, beautiful bright colors, highly detailed.`;
               }
+
+              console.log("Attempting Tier 3 with foolproof prompt:", finalFoolproofPrompt);
+              response = await fetchWithTimeout("https://apihub.agnes-ai.com/v1/video/generations", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${apiKey}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  model: "agnes-video-v2.0",
+                  prompt: finalFoolproofPrompt
+                })
+              });
             }
           }
         }
-      } catch (innerErr: any) {
-        console.log("Agnes direct request: local bypass triggered");
       }
-
-      // If we got a valid response and it is successful, parse and return it
-      if (response && response.ok) {
-        const contentType = response.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          const data = await response.json() as any;
-          return res.json(data);
-        }
-      }
-
-      // FALLBACK QUEUE:
-      // If we couldn't get a valid response, we gracefully fall back to a completed local video!
-      console.log("Agnes Video API: local bypass triggered");
-      
-      const lower = (prompt || "").toLowerCase();
-      let fallbackTheme = "fallback_scenic";
-      if (lower.includes("rain") || lower.includes("雨")) {
-        fallbackTheme = "fallback_rain";
-      } else if (lower.includes("night") || lower.includes("夜") || lower.includes("dark") || lower.includes("street") || lower.includes("cyberpunk") || lower.includes("街")) {
-        fallbackTheme = "fallback_night";
-      } else if (lower.includes("sky") || lower.includes("sunset") || lower.includes("天空") || lower.includes("雲") || lower.includes("日落") || lower.includes("sunrise")) {
-        fallbackTheme = "fallback_sunset";
-      } else if (lower.includes("room") || lower.includes("cozy") || lower.includes("書房") || lower.includes("房間") || lower.includes("室內") || lower.includes("sitting") || lower.includes("reading")) {
-        fallbackTheme = "fallback_room";
-      }
-
-      return res.json({
-        id: fallbackTheme,
-        task_id: fallbackTheme,
-        status: "SUCCESS",
-        progress: "100%",
-        success: true,
-        is_fallback: true
-      });
-
-    } catch (err: any) {
-      console.log("Agnes Video API: local bypass triggered");
-      // Fallback in outer catch as well to ensure it NEVER crashes
-      const lower = (prompt || "").toLowerCase();
-      let fallbackTheme = "fallback_scenic";
-      if (lower.includes("rain") || lower.includes("雨")) {
-        fallbackTheme = "fallback_rain";
-      } else if (lower.includes("night") || lower.includes("夜") || lower.includes("dark") || lower.includes("street") || lower.includes("cyberpunk") || lower.includes("街")) {
-        fallbackTheme = "fallback_night";
-      } else if (lower.includes("sky") || lower.includes("sunset") || lower.includes("天空") || lower.includes("雲") || lower.includes("日落") || lower.includes("sunrise")) {
-        fallbackTheme = "fallback_sunset";
-      } else if (lower.includes("room") || lower.includes("cozy") || lower.includes("書房") || lower.includes("房間") || lower.includes("室內") || lower.includes("sitting") || lower.includes("reading")) {
-        fallbackTheme = "fallback_room";
-      }
-
-      return res.json({
-        id: fallbackTheme,
-        task_id: fallbackTheme,
-        status: "SUCCESS",
-        progress: "100%",
-        success: true,
-        is_fallback: true
-      });
-    }
-  });
-
-  app.get("/api/check-video-agnes/:taskId?", async (req, res) => {
-    const { taskId } = req.params;
-    
-    if (!taskId || taskId === "undefined") {
-      return res.status(400).json({ error: "Missing or invalid taskId parameter" });
+    } catch (innerErr: any) {
+      console.log("Agnes direct request: local bypass triggered");
     }
 
-    // Determine fallback video based on taskId keywords
-    let videoUrl = "https://videos.pexels.com/video-files/1448735/1448735-hd_1080_1920_24fps.mp4"; // Default scenic tree canopy
-    if (taskId.includes("rain")) {
-      videoUrl = "https://videos.pexels.com/video-files/1526909/1526909-hd_1080_1920_30fps.mp4"; // Cozy window rain
-    } else if (taskId.includes("night")) {
-      videoUrl = "https://videos.pexels.com/video-files/30336054/13003757_360_640_30fps.mp4"; // Cyberpunk HK night street
-    } else if (taskId.includes("sunset")) {
-      videoUrl = "https://videos.pexels.com/video-files/2065876/2065876-hd_1080_1920_30fps.mp4"; // Sunset clouds
-    } else if (taskId.includes("room")) {
-      videoUrl = "https://videos.pexels.com/video-files/3209211/3209211-hd_1080_1920_25fps.mp4"; // Cozy interior reading
-    }
-
-    const fallbackResponse = {
-      success: true,
-      data: {
-        status: "SUCCESS",
-        progress: "100%",
-        data: {
-          status: "completed",
-          progress: 100,
-          video_url: videoUrl
-        }
-      }
-    };
-
-    // Intercept and handle fallback tasks locally to prevent external API calls & "Failed to fetch" errors
-    if (taskId.startsWith("fallback_") || taskId === "task_kDe4ui1Ei1lWIFj2SK0UL9UiZupVmibV") {
-      return res.json(fallbackResponse);
-    }
-
-    const apiKey = req.headers.authorization; // Expecting "Bearer sk-..."
-    if (!apiKey) {
-      return res.status(400).json({ error: "Missing authorization header" });
-    }
-
-    try {
-      const response = await fetchWithTimeout(`https://apihub.agnes-ai.com/v1/video/generations/${taskId}`, {
-        headers: {
-          "Authorization": apiKey
-        }
-      });
-
-      if (!response.ok) {
-        console.log("Agnes status check: API returned non-OK, local bypass triggered");
-        return res.json(fallbackResponse);
-      }
-
+    // If we got a valid response and it is successful, parse and return it
+    if (response && response.ok) {
       const contentType = response.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        console.log("Agnes status check: non-JSON response, local bypass triggered");
-        return res.json(fallbackResponse);
+      if (contentType.includes("application/json")) {
+        const data = await response.json() as any;
+        return res.json(data);
       }
+    }
 
-      const data = await response.json() as any;
-      res.json(data);
-    } catch (err: any) {
-      console.log("Agnes status check: connection adjusted, local bypass triggered");
+    // FALLBACK QUEUE:
+    // If we couldn't get a valid response, we gracefully fall back to a completed local video!
+    console.log("Agnes Video API: local bypass triggered");
+    
+    const lower = (prompt || "").toLowerCase();
+    let fallbackTheme = "fallback_scenic";
+    if (lower.includes("rain") || lower.includes("雨")) {
+      fallbackTheme = "fallback_rain";
+    } else if (lower.includes("night") || lower.includes("夜") || lower.includes("dark") || lower.includes("street") || lower.includes("cyberpunk") || lower.includes("街")) {
+      fallbackTheme = "fallback_night";
+    } else if (lower.includes("sky") || lower.includes("sunset") || lower.includes("天空") || lower.includes("雲") || lower.includes("日落") || lower.includes("sunrise")) {
+      fallbackTheme = "fallback_sunset";
+    } else if (lower.includes("room") || lower.includes("cozy") || lower.includes("書房") || lower.includes("房間") || lower.includes("室內") || lower.includes("sitting") || lower.includes("reading")) {
+      fallbackTheme = "fallback_room";
+    }
+
+    return res.json({
+      id: fallbackTheme,
+      task_id: fallbackTheme,
+      status: "SUCCESS",
+      progress: "100%",
+      success: true,
+      is_fallback: true
+    });
+
+  } catch (err: any) {
+    console.log("Agnes Video API: local bypass triggered");
+    // Fallback in outer catch as well to ensure it NEVER crashes
+    const lower = (prompt || "").toLowerCase();
+    let fallbackTheme = "fallback_scenic";
+    if (lower.includes("rain") || lower.includes("雨")) {
+      fallbackTheme = "fallback_rain";
+    } else if (lower.includes("night") || lower.includes("夜") || lower.includes("dark") || lower.includes("street") || lower.includes("cyberpunk") || lower.includes("街")) {
+      fallbackTheme = "fallback_night";
+    } else if (lower.includes("sky") || lower.includes("sunset") || lower.includes("天空") || lower.includes("雲") || lower.includes("日落") || lower.includes("sunrise")) {
+      fallbackTheme = "fallback_sunset";
+    } else if (lower.includes("room") || lower.includes("cozy") || lower.includes("書房") || lower.includes("房間") || lower.includes("室內") || lower.includes("sitting") || lower.includes("reading")) {
+      fallbackTheme = "fallback_room";
+    }
+
+    return res.json({
+      id: fallbackTheme,
+      task_id: fallbackTheme,
+      status: "SUCCESS",
+      progress: "100%",
+      success: true,
+      is_fallback: true
+    });
+  }
+});
+
+app.get("/api/check-video-agnes/:taskId?", async (req, res) => {
+  const { taskId } = req.params;
+  
+  if (!taskId || taskId === "undefined") {
+    return res.status(400).json({ error: "Missing or invalid taskId parameter" });
+  }
+
+  // Determine fallback video based on taskId keywords
+  let videoUrl = "https://videos.pexels.com/video-files/1448735/1448735-hd_1080_1920_24fps.mp4"; // Default scenic tree canopy
+  if (taskId.includes("rain")) {
+    videoUrl = "https://videos.pexels.com/video-files/1526909/1526909-hd_1080_1920_30fps.mp4"; // Cozy window rain
+  } else if (taskId.includes("night")) {
+    videoUrl = "https://videos.pexels.com/video-files/30336054/13003757_360_640_30fps.mp4"; // Cyberpunk HK night street
+  } else if (taskId.includes("sunset")) {
+    videoUrl = "https://videos.pexels.com/video-files/2065876/2065876-hd_1080_1920_30fps.mp4"; // Sunset clouds
+  } else if (taskId.includes("room")) {
+    videoUrl = "https://videos.pexels.com/video-files/3209211/3209211-hd_1080_1920_25fps.mp4"; // Cozy interior reading
+  }
+
+  const fallbackResponse = {
+    success: true,
+    data: {
+      status: "SUCCESS",
+      progress: "100%",
+      data: {
+        status: "completed",
+        progress: 100,
+        video_url: videoUrl
+      }
+    }
+  };
+
+  // Intercept and handle fallback tasks locally to prevent external API calls & "Failed to fetch" errors
+  if (taskId.startsWith("fallback_") || taskId === "task_kDe4ui1Ei1lWIFj2SK0UL9UiZupVmibV") {
+    return res.json(fallbackResponse);
+  }
+
+  const apiKey = req.headers.authorization; // Expecting "Bearer sk-..."
+  if (!apiKey) {
+    return res.status(400).json({ error: "Missing authorization header" });
+  }
+
+  try {
+    const response = await fetchWithTimeout(`https://apihub.agnes-ai.com/v1/video/generations/${taskId}`, {
+      headers: {
+        "Authorization": apiKey
+      }
+    });
+
+    if (!response.ok) {
+      console.log("Agnes status check: API returned non-OK, local bypass triggered");
       return res.json(fallbackResponse);
     }
-  });
 
-  app.post("/api/extract-characters", async (req, res) => {
-    const { apiKey, content, provider = "zhipu", model } = req.body;
-    if (!apiKey) {
-      return res.status(400).json({ error: "Missing API Key" });
-    }
-    if (!content) {
-      return res.status(400).json({ error: "Missing novel content" });
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      console.log("Agnes status check: non-JSON response, local bypass triggered");
+      return res.json(fallbackResponse);
     }
 
-    try {
-      const prompt = `你是一位專業的角色設定師與原畫美術指導。請分析以下小說內容，提取出小說中所有主要及次要故事人物。
+    const data = await response.json() as any;
+    res.json(data);
+  } catch (err: any) {
+    console.log("Agnes status check: connection adjusted, local bypass triggered");
+    return res.json(fallbackResponse);
+  }
+});
+
+app.post("/api/extract-characters", async (req, res) => {
+  const { apiKey, content, provider = "zhipu", model } = req.body;
+  if (!apiKey) {
+    return res.status(400).json({ error: "Missing API Key" });
+  }
+  if (!content) {
+    return res.status(400).json({ error: "Missing novel content" });
+  }
+
+  try {
+    const prompt = `你是一位專業的角色設定師與原畫美術指導。請分析以下小說內容，提取出小說中所有主要及次要故事人物。
 請以嚴格的 JSON 陣列格式輸出，不要包含任何 Markdown 格式標記（如 \`\`\`json 等），只返回一個包含多個 Character 物件的 JSON 陣列。
 每個 Character 物件必須包含以下屬性：
 - name (string): 角色姓名（例如 "凌風"）
@@ -652,97 +638,97 @@ async function startServer() {
 小說內容如下：
 ${content}`;
 
-      let response;
-      if (provider === "mistral") {
-        const selectedModel = model || "mistral-large-latest";
-        response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              {
-                role: "user",
-                content: prompt
-              }
-            ],
-            temperature: 0.3,
-            response_format: { type: "json_object" }
-          })
-        });
-      } else {
-        const selectedModel = model || "glm-4-flash";
-        response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              {
-                role: "user",
-                content: prompt
-              }
-            ],
-            temperature: 0.3,
-            response_format: { type: "json_object" }
-          })
-        });
-      }
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error("Extract Characters API Error:", errText);
-        return res.status(response.status).json({ error: `AI API error: ${errText}` });
-      }
-
-      const data = await response.json() as any;
-      const assistantMessage = data.choices?.[0]?.message?.content || "";
-      
-      let cleanedText = assistantMessage.trim();
-      if (cleanedText.startsWith("```json")) {
-        cleanedText = cleanedText.substring(7);
-      } else if (cleanedText.startsWith("```")) {
-        cleanedText = cleanedText.substring(3);
-      }
-      if (cleanedText.endsWith("```")) {
-        cleanedText = cleanedText.substring(0, cleanedText.length - 3);
-      }
-      cleanedText = cleanedText.trim();
-
-      try {
-        let parsedJSON = JSON.parse(cleanedText);
-        if (!Array.isArray(parsedJSON) && parsedJSON.characters) {
-          parsedJSON = parsedJSON.characters;
-        }
-        res.json({ characters: parsedJSON });
-      } catch (jsonErr) {
-        console.error("Error parsing characters JSON:", cleanedText);
-        res.json({ rawText: cleanedText, error: "JSON parsing failed but returned raw text" });
-      }
-
-    } catch (err: any) {
-      console.error("Server character extraction error:", err);
-      res.status(500).json({ error: err.message || "Internal server error" });
+    let response;
+    if (provider === "mistral") {
+      const selectedModel = model || "mistral-large-latest";
+      response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        })
+      });
+    } else {
+      const selectedModel = model || "glm-4-flash";
+      response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        })
+      });
     }
-  });
 
-  app.post("/api/generate-script", async (req, res) => {
-    const { apiKey, content, provider = "zhipu", model } = req.body;
-    if (!apiKey) {
-      return res.status(400).json({ error: "Missing API Key" });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Extract Characters API Error:", errText);
+      return res.status(response.status).json({ error: `AI API error: ${errText}` });
     }
-    if (!content) {
-      return res.status(400).json({ error: "Missing novel content" });
+
+    const data = await response.json() as any;
+    const assistantMessage = data.choices?.[0]?.message?.content || "";
+    
+    let cleanedText = assistantMessage.trim();
+    if (cleanedText.startsWith("```json")) {
+      cleanedText = cleanedText.substring(7);
+    } else if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText.substring(3);
     }
+    if (cleanedText.endsWith("```")) {
+      cleanedText = cleanedText.substring(0, cleanedText.length - 3);
+    }
+    cleanedText = cleanedText.trim();
 
     try {
-      const prompt = `你是一位專業的短劇編劇與分鏡師。請將以下小說/故事文本改編成結構化的短劇分鏡劇本。
+      let parsedJSON = JSON.parse(cleanedText);
+      if (!Array.isArray(parsedJSON) && parsedJSON.characters) {
+        parsedJSON = parsedJSON.characters;
+      }
+      res.json({ characters: parsedJSON });
+    } catch (jsonErr) {
+      console.error("Error parsing characters JSON:", cleanedText);
+      res.json({ rawText: cleanedText, error: "JSON parsing failed but returned raw text" });
+    }
+
+  } catch (err: any) {
+    console.error("Server character extraction error:", err);
+    res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+
+app.post("/api/generate-script", async (req, res) => {
+  const { apiKey, content, provider = "zhipu", model } = req.body;
+  if (!apiKey) {
+    return res.status(400).json({ error: "Missing API Key" });
+  }
+  if (!content) {
+    return res.status(400).json({ error: "Missing novel content" });
+  }
+
+  try {
+    const prompt = `你是一位專業的短劇編劇與分鏡師。請將以下小說/故事文本改編成結構化的短劇分鏡劇本。
 請以嚴格的 JSON 陣列格式輸出，不要包含任何 Markdown 格式標記（如 \`\`\`json 等），只返回一個包含多個 Scene 物件的 JSON 陣列。
 每個 Scene 物件必須包含以下屬性：
 - sceneNum (string): 場景編號，例如 "1"
@@ -754,98 +740,107 @@ ${content}`;
 小說內容如下：
 ${content}`;
 
-      let response;
-      if (provider === "mistral") {
-        const selectedModel = model || "mistral-large-latest";
-        response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              {
-                role: "user",
-                content: prompt
-              }
-            ],
-            temperature: 0.3,
-            response_format: { type: "json_object" }
-          })
-        });
-      } else {
-        const selectedModel = model || "glm-4-flash";
-        response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              {
-                role: "user",
-                content: prompt
-              }
-            ],
-            temperature: 0.3,
-            response_format: { type: "json_object" }
-          })
-        });
-      }
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error("AI API Error response:", errText);
-        return res.status(response.status).json({ error: `AI API error: ${errText}` });
-      }
-
-      const data = await response.json() as any;
-      const assistantMessage = data.choices?.[0]?.message?.content || "";
-      
-      // Clean up markdown block wraps if model outputted them despite prompt instructions
-      let cleanedText = assistantMessage.trim();
-      if (cleanedText.startsWith("```json")) {
-        cleanedText = cleanedText.substring(7);
-      } else if (cleanedText.startsWith("```")) {
-        cleanedText = cleanedText.substring(3);
-      }
-      if (cleanedText.endsWith("```")) {
-        cleanedText = cleanedText.substring(0, cleanedText.length - 3);
-      }
-      cleanedText = cleanedText.trim();
-
-      try {
-        let parsedJSON = JSON.parse(cleanedText);
-        // Sometimes the API might wrap the array under a top-level key like "scenes" or "script"
-        if (!Array.isArray(parsedJSON) && parsedJSON.scenes) {
-          parsedJSON = parsedJSON.scenes;
-        } else if (!Array.isArray(parsedJSON) && parsedJSON.script) {
-          parsedJSON = parsedJSON.script;
-        }
-        res.json({ scenes: parsedJSON });
-      } catch (jsonErr) {
-        console.error("Error parsing JSON output from GLM-4-Flash:", cleanedText);
-        // Fallback to sending the clean text
-        res.json({ rawText: cleanedText, error: "JSON parsing failed but returned raw text" });
-      }
-
-    } catch (err: any) {
-      console.error("Server script generation error:", err);
-      res.status(500).json({ error: err.message || "Internal server error" });
+    let response;
+    if (provider === "mistral") {
+      const selectedModel = model || "mistral-large-latest";
+      response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        })
+      });
+    } else {
+      const selectedModel = model || "glm-4-flash";
+      response = await fetch("https://open.bigmodel.cn/api/paas/v4/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        })
+      });
     }
-  });
- 
 
-  // API catch-all route to prevent fallback to SPA HTML
-  app.all("/api/*", (req, res) => {
-    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
-  });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("AI API Error response:", errText);
+      return res.status(response.status).json({ error: `AI API error: ${errText}` });
+    }
 
-  // Vite middleware for development
+    const data = await response.json() as any;
+    const assistantMessage = data.choices?.[0]?.message?.content || "";
+    
+    // Clean up markdown block wraps if model outputted them despite prompt instructions
+    let cleanedText = assistantMessage.trim();
+    if (cleanedText.startsWith("```json")) {
+      cleanedText = cleanedText.substring(7);
+    } else if (cleanedText.startsWith("```")) {
+      cleanedText = cleanedText.substring(3);
+    }
+    if (cleanedText.endsWith("```")) {
+      cleanedText = cleanedText.substring(0, cleanedText.length - 3);
+    }
+    cleanedText = cleanedText.trim();
+
+    try {
+      let parsedJSON = JSON.parse(cleanedText);
+      // Sometimes the API might wrap the array under a top-level key like "scenes" or "script"
+      if (!Array.isArray(parsedJSON) && parsedJSON.scenes) {
+        parsedJSON = parsedJSON.scenes;
+      } else if (!Array.isArray(parsedJSON) && parsedJSON.script) {
+        parsedJSON = parsedJSON.script;
+      }
+      res.json({ scenes: parsedJSON });
+    } catch (jsonErr) {
+      console.error("Error parsing JSON output from GLM-4-Flash:", cleanedText);
+      // Fallback to sending the clean text
+      res.json({ rawText: cleanedText, error: "JSON parsing failed but returned raw text" });
+    }
+
+  } catch (err: any) {
+    console.error("Server script generation error:", err);
+    res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+
+// API catch-all route to prevent fallback to SPA HTML
+app.all("/api/*", (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+});
+
+// Production static file serving
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.join(process.cwd(), 'dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+// Development Vite middleware
+export async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -853,13 +848,20 @@ ${content}`;
       root: "client",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'client/dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+  }
+  
+  if (require.main === module) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log('Server running on http://localhost:' + PORT);
     });
   }
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+export default app;
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
